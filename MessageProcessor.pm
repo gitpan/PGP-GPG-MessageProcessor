@@ -10,7 +10,7 @@ use IPC::Open3;
 use FileHandle;
 use vars qw/ $VERSION /;
 
-$VERSION = '0.3.2';
+$VERSION = '0.3.3';
 
 sub new {
   my $proto  = shift;
@@ -30,8 +30,23 @@ sub new {
       pgp50compatibility => 0
     };
   bless( $self, $class );
+  $self->_init( @_ ); 
   return $self;
 }
+
+
+
+
+sub _init {
+  my $self = shift;
+  if ( @_ ) {
+    my %extra = @_;
+    @{ $self }{ keys %extra } = values %extra;
+  }
+}
+
+
+
 
 
 sub passphrasePrompt {
@@ -49,6 +64,8 @@ sub passphrasePrompt {
   
   return $self->{passphrase} = $line;
 }
+
+
 
 
 sub passphraseTest {
@@ -84,6 +101,8 @@ sub passphraseTest {
 }
 
 
+
+
 sub cipher {
   my $self = shift;
   
@@ -93,19 +112,20 @@ sub cipher {
     croak 'Did not specify to encrypt or sign message.';
   }
   
-  if ( $self->{encrypt} ) { push @cmd, '--encrypt'; }
-  if ( $self->{sign} )    { push @cmd, '--sign'; }
-  
-
+  if ( $self->{encrypt} ) {
+    push @cmd, '--encrypt';
+  }
+  if ( $self->{sign} ) {
+    push @cmd, ( $self->{clearsign} ? '--clearsign' : '--sign' );
+  }
   
   
   # Check for recipients
   if ( $self->{encrypt} ) {
     if ( scalar @{ $self->{recipients} } ) {
       # need to add --recipient to each recipient
-      push @cmd, split ( /\s+/,
-			 join ( ' ', map "--recipient $_",
-				@{ $self->{recipients} } ) );
+      push
+	@cmd, map { ( '--recipient' => $_ ) } @{ $self->{recipients} };
     }
     else {
       croak 'Must specify recipients for encryption';
@@ -114,7 +134,6 @@ sub cipher {
   
   # Extraneous command-line parameters
   if ( $self->{armor} )           { push ( @cmd, '--armor' ); }
-  if ( $self->{clearsign} )       { push ( @cmd, '-t' ); }
   if ( $self->{symmetric} and scalar @{ $self->{recipients} } ) {
     croak 'Cannot symmetrically encrypt and have recipients';
   }
@@ -130,6 +149,8 @@ sub cipher {
 }
 
 
+
+
 sub verify {
   my $self = shift;
   
@@ -137,6 +158,8 @@ sub verify {
   
   return $self->pipePGP( [ @cmd ], @_ );
 }
+
+
 
 
 sub pipePGP {

@@ -3,3 +3,5 @@ README
 Makefile.PL
 MessageProcessor.pm
 MessageProcessor.pod
+NEWS
+COPYING

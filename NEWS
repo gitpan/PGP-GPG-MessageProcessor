@@ -1,0 +1,9 @@
+Noteworthy changes in version 0.3.3
+------------------------------------
+
+    *	Added NEWS file.
+    *	Fixed problem with recipient ID's having spaces.
+    *	Fixed documentation.
+    *	One can now pass in anonymous hashes to the contructor
+	to set data members upon creation.
+    *	Clearsigning bug fixed.

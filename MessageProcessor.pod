@@ -6,34 +6,44 @@ PGP::GPG::MessageProcessor - supply object methods for interacting with GPG.
 
   use PGP::GPG::MessageProcessor;
 
-  $messageProcessor = new PGP::GPG::MessageProcessor;
+  $mp = new PGP::GPG::MessageProcessor;
 
-  $messageProcessor->{encrypt} = $boolean;
-  $messageProcessor->{sign} = $boolean;
+  $mp->{encrypt} = $boolean;
+  $mp->{sign} = $boolean;
 
-  $messageProcessor->{recipients} = [ 'keyID', ... ];
+  $mp->{recipients} = [ 'keyID', ... ];
 
-  $messageProcessor->{passphrase} = $passphrase;
-  $passphrase = $messageProcessor->passphrasePrompt();
-  $success    = $messageProcessor->passphraseTest( [$passphrase] );
+  $mp->{passphrase} = $passphrase;
+  $passphrase       = $mp->passphrasePrompt();
+  $success          = $mp->passphraseTest( [$passphrase] );
 
-  $success    = $messageProcessor->cipher( \@plaintext, [ [\@ciphertext],
-                                   [\@stderr] ] );
+  $success    = $mp->cipher( \@plaintext, [ \@ciphertext,
+                                            [ \@stderr ] ] );
 
-  $success    = $messageProcessor->verify( \@ciphertext, [ [\@plaintext],
-                                  [\@stderr] ] );
+  $success    = $mp->verify( \@ciphertext, [ \@plaintext,
+                                             [ \@stderr ] ] );
 
-  $messageProcessor->{interactive} = $boolean;
-  $messageProcessor->{armor}       = $boolean;
-  $messageProcessor->{clearsign}   = $boolean
-  $messageProcessor->{symmetric}   = $boolean;
-  $messageProcessor->{secretKeyID} = $keyID;
-  $messageProcessor->{extraArgs}   = [ '--foo' ];
+  $mp->{interactive} = $boolean;
+  $mp->{armor}       = $boolean;
+  $mp->{clearsign}   = $boolean
+  $mp->{symmetric}   = $boolean;
+  $mp->{secretKeyID} = $keyID;
+  $mp->{extraArgs}   = [ '--foo' ];
+
+  $mp = new PGP::GPG::MessageProcessor { encrypt => 1, symmetric => 1 }
+
+Please note that brackets ( [ ] )'s around arguments to a function
+indicate that the arguments are optional, not the creation of
+an array reference.  However, a pair brackets around a list that a
+data member of $mp is being set to does indicate that an array
+reference is being used.  For example, the value I<$extraArgs> is set
+to should be an array reference, while I<cipher()> gets between
+1 and 3 arguents.
 
 =head1 DESCRIPTION
 
-The purpose of I<PGP::GPG::MessageProcessor> is to provide a simple, object-oriented
-interface to GPG, the GNU Privacy Guard,
+The purpose of I<PGP::GPG::MessageProcessor> is to provide a simple,
+object-oriented interface to GPG, the GNU Privacy Guard,
 and any other implementation of PGP that uses
 the same syntax and piping mechanisms.
 
@@ -57,12 +67,13 @@ Default is false.
 
 =item B<$recipients>
 
-I<$recipients> is a reference to an array of keyIDs GPG will encrypt to.
+A reference to an array of keyIDs GPG will encrypt to.
 Default is null.
 
 =item B<$passphrase>
 
 GPG will use I<$passphrase> for signing and decrypting.
+This does not have to be set if I<$interactive> is set.
 Default is null.
 
 =item B<$interactive>
@@ -85,17 +96,25 @@ Default is false.
 =item B<conventional( [$boolean] )>
 
 If true, GPG will only symmetrically (conventionally) encrypt.
+This option is supposed to be used in addition to a true value
+for I<$encrypt>.
 If true, I<$recipients> must be null.
 Default is false.
 
 =item B<$secretKeyID>
 
-$secretKeyID is the secret key GPG will use for signing and passphrase testing.
-GPG will choose the default key if unset.  Default is null.
+The secret key GPG will use for signing and passphrase testing.
+GPG will choose the default key if unset.
+Default is null.
+
+=item B<$comment>
+This option fills defines what comment is put into the comment
+field of messages.
+Default is null; this will let GPG do what it likes.
 
 =item B<$extraArgs>
 
-$extraArgs is a reference to an array of any other possible arguments
+A reference to an array of any other possible arguments
 to be passed to GPG.
 
 =back
@@ -106,7 +125,8 @@ to be passed to GPG.
 
 =item B<new()>
 
-Creates a new object.
+Creates a new object.  One can pass in data members with
+values using an anonymous hash.
 
 =item B<passphrasePrompt()>
 
@@ -119,7 +139,7 @@ Uses a crude mechanism to check if I<$passphase> (already set
 or passed as an argument) is valid for the secret
 key currently selected.  Sets I<$passphrase> to any passed argument.
 
-=item B<cipher( \@plaintext, [ [\@ciphertext], [\@stderr] ] )>
+=item B<cipher( \@plaintext, [ \@ciphertext, [ \@stderr ] ] )>
 
 Performs PGP encryption and/or signing over @plaintext.  This is a 
 'committal' method.  If no
@@ -128,7 +148,7 @@ Otherwise, @ciphertext contains GPG's result.  If \@stderr is passed,
 GPG's stderr is captured into @stderr.  This is useful if you want to hide
 everything GPG does from the user.
 
-=item B<verify( \@ciphertext, [ [\@plaintext], [\@stderr] ] )>
+=item B<verify( \@ciphertext, [ \@plaintext, [ \@stderr ] ] )>
 
 Performs PGP decryption and/or over @ciphertext.  This a 'committal' method.
 If no \@plaintext is passed, @ciphertext is replaced with the plaintext.
@@ -163,7 +183,7 @@ Nothing fancy here for security such as memory-locking.
 
 =head1 AUTHOR
 
-Frank J. Tobin <ftobin@bigfoot.com>
+Frank J. Tobin <ftobin@neverending.org>
 
 fingerprint: 4F86 3BBB A816 6F0A 340F  6003 56FF D10A 260C 4FA3
 
