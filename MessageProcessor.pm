@@ -1,4 +1,4 @@
-#  Copyright (C) 1999 Frank Tobin
+#  Copyright (C) 1999 Frank J. Tobin <ftobin@uiuc.edu>
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -17,7 +17,7 @@
 
 package PGP::GPG::MessageProcessor;
 
-use 5.004;
+use 5.005;
 
 use strict;
 no strict 'refs';
@@ -31,7 +31,7 @@ use vars qw/ $VERSION /;
 use Fatal qw/ open close pipe gensym fcntl /;
 1;
 
-$VERSION = '0.4.1';
+$VERSION = '0.4.2';
 
 use constant DEBUG => 0;
 
@@ -467,10 +467,17 @@ PGP::GPG::MessageProcessor - supply object methods for interacting with GPG.
   $status = gensym;
 
   $pid = $mp->cipher( $input, $output, $error, $status );
+  
+  print $input @plaintext;
+  close $input;
 
-  $input  = "<&STDIN";
-  $output = '';
-  $error  = gensym;
+  @ciphertext = <$output>;
+  @error      = <$error>;
+  @status     = <$status>;
+
+  $input  = "<&STDIN";     # read from stdin; this could also just be ''
+  $output = '';            # write to stdout; this could also be ">&STDOUT"
+
   $pid = $mp->decipher( $input, $output, $error );
 
   $mp->{interactive} = $boolean;
@@ -607,8 +614,10 @@ This is a committal method; that is, it looks at all the previously-set
 data members, and calls gpg accordingly for encrypting or signing
 streams.
 The interface for this method is similar to IPC::Open3's interface;
-please read it for gritty details.  This interface is a lot more lenient,
-however.  If $stdin, $stdout, or $stderr is eliminated, or false,
+please read it for gritty details.  Basically, filehandles are passed
+in, and they are attached to the gpg process.
+This interface is a lot more lenient, however.
+If $stdin, $stdout, or $stderr is eliminated, or false,
 its respective 'natural' file handle is used.  That is, if $stderr
 is elminated, all of gpg's stderr is piped out to your stderr; if
 $stdin is eliminated, gpg reads from your stdin.  $status
@@ -616,7 +625,7 @@ reads from gpg's --status-fd option, and has no 'natural' backup;
 that is, if it is eliminated, the output is not piped to
 any other filehandle.
 To detect success or failure, one can either see if the output is
-null (a hack), or, preferrably, read from $status.  This will
+eof (a hack), or, preferrably, read from $status.  This will
 give you the best, detailed output.
 I<encrypt()> and I<sign()> are aliases for this subroutine,
 for ease of readibility.
@@ -678,7 +687,7 @@ fingerprint: 4F86 3BBB A816 6F0A 340F  6003 56FF D10A 260C 4FA3
 
 =head1 COPYRIGHT
 
-Copyright (C) 1999 Frank Tobin
+Copyright (C) 1999 Frank J. Tobin <ftobin@uiuc.edu>
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
