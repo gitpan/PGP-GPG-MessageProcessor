@@ -1,9 +1,46 @@
-Noteworthy changes in version 0.3.3
+Noteworth changes in 0.4.0
+------------------------------------
+
+    *	This version is NOT ENTIRELY BACKWARDS COMPATIBLE.
+	Some functions, have changed names, namely
+	those dealing with passphrases.
+
+    *	cipher() and decipher() can take filehandles,
+	and act like IPC::Open3.  One has control
+	over the stdin, stdout, stderr, and the
+	status filehandles.  Old functionality using
+	passed array refs has been maintained, BUT WILL
+	BE FADED OUT, in favor of the passed-filehandle
+	method, as it is much more efficient with memory,
+	and old code can be easily converted into
+	using the new method.
+
+    *	passphrase_test() is now smarter; it relies
+	on the status fd from gpg to tell if
+	as passphrase is good or not.
+
+    *	passphrase_prompt() now uses Term::ReadKey to interact
+	with the user.
+
+    *	encrypt() and sign() are now aliases for encrypt().
+
+    *	verify() and decrypt() are now aliases for decipher().
+
+    *	Added data member $homedir.
+
+    *	Major code rewrite; the whole internal structure changed.
+
+
+Noteworthy changes in 0.3.3
 ------------------------------------
 
     *	Added NEWS file.
+
     *	Fixed problem with recipient ID's having spaces.
+
     *	Fixed documentation.
+
     *	One can now pass in anonymous hashes to the contructor
 	to set data members upon creation.
+
     *	Clearsigning bug fixed.

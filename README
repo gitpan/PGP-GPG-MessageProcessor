@@ -12,54 +12,51 @@ The interface is designed to be consistent with
 PGP::PGP5::MessageProcessor, so that the same methods may be
 used on objects of both modules.
 
--------------------------------------------------------------------------
+----------------------------------------------------------------------
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
-
--------------------------------------------------------------------------
 
 NAME
     PGP::GPG::MessageProcessor - supply object methods for interacting with
     GPG.
 
 SYNOPSIS
+      use Symbol;                     # for gensym
       use PGP::GPG::MessageProcessor;
 
-      $messageProcessor = new PGP::GPG::MessageProcessor;
+      $mp = new PGP::GPG::MessageProcessor;
 
-      $messageProcessor->{encrypt} = $boolean;
-      $messageProcessor->{sign} = $boolean;
+      $mp->{encrypt}    = $boolean;
+      $mp->{sign}       = $boolean;
 
-      $messageProcessor->{recipients} = [ 'keyID', ... ];
+      $mp->{recipients} = [ 'keyID', ... ];
 
-      $messageProcessor->{passphrase} = $passphrase;
-      $passphrase = $messageProcessor->passphrasePrompt();
-      $success    = $messageProcessor->passphraseTest( [$passphrase] );
+      $mp->{passphrase} = $passphrase;
+      $passphrase       = $mp->passphrase_prompt();
+      $success          = $mp->passphrase_test( $passphrase);
 
-      $success    = $messageProcessor->cipher( \@plaintext, [ [\@ciphertext],
-                                       [\@stderr] ] );
+      $input  = gensym;  # These could be a new IO::Handle or FileHandle
+      $output = gensym;  # instead; import theses modules if you want them.
+      $error  = '';      # Yes, youy can do this!  It becomes ">&STDERR".
+      $status = gensym;
 
-      $success    = $messageProcessor->verify( \@ciphertext, [ [\@plaintext],
-                                      [\@stderr] ] );
+      $pid = $mp->cipher( $input, $output, $error, $status );
 
-      $messageProcessor->{interactive} = $boolean;
-      $messageProcessor->{armor}       = $boolean;
-      $messageProcessor->{clearsign}   = $boolean
-      $messageProcessor->{symmetric}   = $boolean;
-      $messageProcessor->{secretKeyID} = $keyID;
-      $messageProcessor->{extraArgs}   = [ '--foo' ];
+      $input  = "<&STDIN";
+      $output = '';
+      $error  = gensym;
+      $pid = $mp->decipher( $input, $output, $error );
+
+      $mp->{interactive} = $boolean;
+      $mp->{noTTY}       = $boolean;
+      $mp->{armor}       = $boolean;
+      $mp->{clearsign}   = $boolean
+      $mp->{symmetric}   = $boolean;
+      $mp->{secretKeyID} = $keyID;
+      $mp->{comment}     = $string;
+      $mp->{homedir}     = $pathname; # without shell expansions like ~
+      $mp->{extraArgs}   = [ '--cipher-algo', 2 ];
+
+      $mp = new PGP::GPG::MessageProcessor { encrypt => 1, symmetric => 1 }
 
 DESCRIPTION
     The purpose of *PGP::GPG::MessageProcessor* is to provide a simple,
@@ -68,7 +65,11 @@ DESCRIPTION
 
     Normal usage involves creating a new object via *new()*, making some
     settings such as *$passphase*, *$armor*, or *$recipients*, and then
-    committing these with *cipher()* or *verify()*.
+    committing these with *cipher()* or *decipher()*.
+
+    The interface to *cipher()* and *decipher()* is modelled after
+    IPC::Open3, a base Perl module. In fact, most of the inter-process
+    communication code in this module is modelled after IPC::Open3.
 
 DATA MEMBERS
     $encrypt
@@ -78,17 +79,17 @@ DATA MEMBERS
       If true, the message will be signed. Default is false.
 
     $recipients
-      *$recipients* is a reference to an array of keyIDs GPG will encrypt
-      to. Default is null.
-
-    $passphrase
-      GPG will use *$passphrase* for signing and decrypting. Default is
+      A reference to an array of keyIDs GPG will encrypt to. Default is
       null.
 
+    $passphrase
+      GPG will use *$passphrase* for signing and decrypting. This does not
+      have to be set if *$interactive* is set. Default is null.
+
     $interactive
-      *PGP::GPG::MessageProcessor* will allow the user to interact directly
-      with GPG such as to enter passphrases. This is desired for maximum
-      security. Default is true.
+      Setting this will allow the user to interact directly with GPG such as
+      to enter passphrases. This is desired for maximum security, so that
+      passphrases are not held in memory. Default is true.
 
     $armor
       If true, GPG will produce an armored output. Default is false.
@@ -96,57 +97,90 @@ DATA MEMBERS
     $clearsign
       If true, GPG will produce clear-signed messages. Default is false.
 
-    conventional( [$boolean] )
-      If true, GPG will only symmetrically (conventionally) encrypt. If
-      true, *$recipients* must be null. Default is false.
+    $symmetric
+      If true, GPG will only symmetrically (conventionally) encrypt. This
+      option is supposed to be used in addition to a true value for
+      *$encrypt*. If true, *$recipients* will be disregarded. Default is
+      false.
 
     $secretKeyID
-      $secretKeyID is the secret key GPG will use for signing and passphrase
-      testing. GPG will choose the default key if unset. Default is null.
+      The secret key GPG will use for signing and passphrase testing. GPG
+      will choose the default key if unset. Default is null.
+
+    $comment
+      This option fills defines what comment is put into the comment field
+      of messages. Default is null; GPG determines.
+
+    $homedir
+      This option determines the argument to GPG's --homedir option. Default
+      is null; GPG determines.
 
     $extraArgs
-      $extraArgs is a reference to an array of any other possible arguments
-      to be passed to GPG.
+      A reference to an array of any other possible arguments Please note
+      that if you wish to have multiple options, including ones that are
+      divided up among two arguments, such as --cipher-algo, which takes a
+      second argument, an integer, divide up the arguments into different
+      elements in the array reference. See the example in the synopsis for
+      an example.
 
 METHODS
     new()
-      Creates a new object.
+      Creates a new object. One can pass in data members with values using
+      an anonymous hash. See synopsis for an example.
 
-    passphrasePrompt()
-      Prompts the user for a passphrase; uses 'stty sane -echo < /dev/tty'
-      for non-echoed input. Sets *$passphrase* to any input by the user.
+    passphrase_prompt()
+      Prompts the user for a passphrase; uses Term::ReadKey for non-echoed
+      input. Sets *$passphrase* to any input by the user.
 
-    passphraseTest( [$passphrase] )
-      Uses a crude mechanism to check if *$passphase* (already set or passed
-      as an argument) is valid for the secret key currently selected. Sets
-      *$passphrase* to any passed argument.
+    passphrase_test( [$passphrase] )
+      Tests if *$passphase* (already set or passed as an argument) is valid
+      for the secret key currently selected. Sets *$passphrase* to any
+      passed argument.
 
-    cipher( \@plaintext, [ [\@ciphertext], [\@stderr] ] )
-      Performs PGP encryption and/or signing over @plaintext. This is a
-      'committal' method. If no \@ciphertext is passed, @plaintext is
-      replaced with the ciphertext. Otherwise, @ciphertext contains GPG's
-      result. If \@stderr is passed, GPG's stderr is captured into @stderr.
-      This is useful if you want to hide everything GPG does from the user.
+    cipher( $stdin, [ $stdout, [ $stderr, [ $status ] ] ] )
+      This is a committal method; that is, it looks at all the previously-
+      set data members, and calls gpg accordingly for encrypting or signing
+      streams. The interface for this method is similar to IPC::Open3's
+      interface; please read it for gritty details. This interface is a lot
+      more lenient, however. If $stdin, $stdout, or $stderr is eliminated,
+      or false, its respective 'natural' file handle is used. That is, if
+      $stderr is elminated, all of gpg's stderr is piped out to your stderr;
+      if $stdin is eliminated, gpg reads from your stdin. $status reads from
+      gpg's --status-fd option, and has no 'natural' backup; that is, if it
+      is eliminated, the output is not piped to any other filehandle. To
+      detect success or failure, one can either see if the output is null (a
+      hack), or, preferrably, read from $status. This will give you the
+      best, detailed output. *encrypt()* and *sign()* are aliases for this
+      subroutine, for ease of readibility.
 
-    verify( \@ciphertext, [ [\@plaintext], [\@stderr] ] )
-      Performs PGP decryption and/or over @ciphertext. This a 'committal'
-      method. If no \@plaintext is passed, @ciphertext is replaced with the
-      plaintext. Otherwise, @plaintext contains GPG's result. If \@stderr is
-      passed, GPG's stderr is captured into @stderr. This is useful if you
-      want to hide everything GPG does from the user.
+    decipher( $stdin, [ $stdout, [ $stderr, [ $status ] ] ] )
+      This is just like *cipher()*, described above, except that it is used
+      for decrypting or verifying streams. *decrypt()* and *verify()* are
+      aliases for this subroutine, for ease of readibility.
 
 NOTES
     Unless *$interactive* is true, *$passphrase* must be set, either
-    directly, or through *passphasePrompt()*, or *passphraseTest()*.
+    directly, or through *passphase_prompt()*, or *passphrase_test()*.
 
     Some settings have no effect in some situations. For instance,
-    *$encrypt* has no effect if *verify()* is called.
+    *$encrypt* has no effect if *decipher()* is called.
+
+    This module does not override any options in what gpg considers to be
+    its option file, located in its homedir.
+
+  BACKWARDS COMPATIBILITY
+
+    Older versions of this module used a sick array-ref method of passing
+    data around. That interface has been dropped, in favor of the cleaner,
+    more efficient, easier to use passed-filehandle method. However, for a
+    couple of revisions, the array-ref interface will still be allowed, but
+    heavily discouraged. Expect this compatibility to be dropped, and change
+    your code to use the new interface described in this manpage.
 
 SECURITY NOTES
     Nothing fancy here for security such as memory-locking.
 
-    *PGP::GPG::MessageProcessor* uses solely pipes to pass the message and
-    passphrase to GPG.
+    This module solely uses pipes to interact with gpg.
 
     For maximum passphrase security, *$interactive* should be true, forcing
     the user to input the passphrase directly to GPG.
@@ -154,8 +188,27 @@ SECURITY NOTES
 PROBLEMS/BUGS
     Nothing fancy here for security such as memory-locking.
 
+    This documentation is probably pretty bad. Please let me know of errors.
+
 AUTHOR
-    Frank J. Tobin <ftobin@bigfoot.com>
+    Frank J. Tobin <ftobin@uiuc.edu>
 
     fingerprint: 4F86 3BBB A816 6F0A 340F 6003 56FF D10A 260C 4FA3
+
+COPYRIGHT
+    Copyright (C) 1999 Frank Tobin
+
+    This program is free software; you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by the
+    Free Software Foundation; either version 2 of the License, or (at your
+    option) any later version.
+
+    This program is distributed in the hope that it will be useful, but
+    WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+    Public License for more details.
+
+    You should have received a copy of the GNU General Public License along
+    with this program; if not, write to the Free Software Foundation, Inc.,
+    59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
 
