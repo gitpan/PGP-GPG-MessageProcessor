@@ -1,3 +1,28 @@
+Noteworthy changes in 0.4.5
+------------------------------------
+
+    *	Internal use of IO::Handle instead of FileHandle.
+
+
+Noteworthy changes in 0.4.4
+------------------------------------
+
+    *	Documentation now recommends using IO::Handle,
+	as this is probably more readable than Symbol's gensym.
+
+    *	passphrase_prompt() removed; this was silly
+	to have in here.  Not having it lets me
+	remove the Term::ReadKey dependencies.
+
+
+Noteworthy changes in 0.4.3
+------------------------------------
+
+    *	Documentation cleanup
+
+    *	Addition of $gpg_program data member.
+
+
 Noteworthy changes in 0.4.2
 ------------------------------------
 

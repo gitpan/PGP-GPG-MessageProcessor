@@ -6,7 +6,6 @@ make install
 
 This module depends on:
 	perl 5.005
-	Term/ReadKey.pm
 	Fatal.pm
 	GnuPG
 
@@ -20,13 +19,15 @@ used on objects of both modules.
 
 ----------------------------------------------------------------------
 
+14/Nov/1999            perl 5.005, patch 03                     5
+
 
 NAME
     PGP::GPG::MessageProcessor - supply object methods for interacting with
-    GPG.
+    GnuPG
 
 SYNOPSIS
-      use Symbol;                     # for gensym
+      use IO::Handle;
       use PGP::GPG::MessageProcessor;
 
       $mp = new PGP::GPG::MessageProcessor;
@@ -37,13 +38,12 @@ SYNOPSIS
       $mp->{recipients} = [ 'keyID', ... ];
 
       $mp->{passphrase} = $passphrase;
-      $passphrase       = $mp->passphrase_prompt();
       $success          = $mp->passphrase_test( $passphrase);
 
-      $input  = gensym;  # These could be a new IO::Handle or FileHandle
-      $output = gensym;  # instead; import theses modules if you want them.
-      $error  = '';      # Yes, youy can do this!  It becomes ">&STDERR".
-      $status = gensym;
+      $input  = new IO::Handle; # These could be be a Symbol::gensym
+      $output = new IO::Handle; # or a new FileHandle
+      $error  = '';             # It becomes ">&STDERR".
+      $status = new IO::Handle;
 
       $pid = $mp->cipher( $input, $output, $error, $status );
       
@@ -54,8 +54,8 @@ SYNOPSIS
       @error      = <$error>;
       @status     = <$status>;
 
-      $input  = "<&STDIN";     # read from stdin; this could also just be ''
-      $output = '';            # write to stdout; this could also be ">&STDOUT"
+      $input  = "<&STDIN";     # read from stdin; could also just be ''
+      $output = '';            # write to stdout
 
       $pid = $mp->decipher( $input, $output, $error );
 
@@ -69,121 +69,122 @@ SYNOPSIS
       $mp->{homedir}     = $pathname; # without shell expansions like ~
       $mp->{extraArgs}   = [ '--cipher-algo', 2 ];
 
-      $mp = new PGP::GPG::MessageProcessor { encrypt => 1, symmetric => 1 }
+      $mp = new PGP::GPG::MessageProcessor { encrypt => 1,
+                                            symmetric => 1 }
 
 DESCRIPTION
-    The purpose of *PGP::GPG::MessageProcessor* is to provide a simple,
-    object-oriented interface to GPG, the GNU Privacy Guard, and any other
+    The purpose of PGP::GPG::MessageProcessor is to provide a simple,
+    object-oriented interface to GnuPG, the GNU Privacy Guard, and any other
     implementation of PGP that uses the same syntax and piping mechanisms.
 
-    Normal usage involves creating a new object via *new()*, making some
-    settings such as *$passphase*, *$armor*, or *$recipients*, and then
-    committing these with *cipher()* or *decipher()*.
+    Normal usage involves creating a new object via new(), making some
+    settings such as $passphase, $armor, or $recipients, and then committing
+    these with cipher() or decipher().
 
-    The interface to *cipher()* and *decipher()* is modelled after
-    IPC::Open3, a base Perl module. In fact, most of the inter-process
-    communication code in this module is modelled after IPC::Open3.
-
-DATA MEMBERS
-    $encrypt
-      If true, the message will be encrypted. Default is false.
-
-    $sign
-      If true, the message will be signed. Default is false.
-
-    $recipients
-      A reference to an array of keyIDs GPG will encrypt to. Default is
-      null.
-
-    $passphrase
-      GPG will use *$passphrase* for signing and decrypting. This does not
-      have to be set if *$interactive* is set. Default is null.
-
-    $interactive
-      Setting this will allow the user to interact directly with GPG such as
-      to enter passphrases. This is desired for maximum security, so that
-      passphrases are not held in memory. Default is true.
-
-    $armor
-      If true, GPG will produce an armored output. Default is false.
-
-    $clearsign
-      If true, GPG will produce clear-signed messages. Default is false.
-
-    $symmetric
-      If true, GPG will only symmetrically (conventionally) encrypt. This
-      option is supposed to be used in addition to a true value for
-      *$encrypt*. If true, *$recipients* will be disregarded. Default is
-      false.
-
-    $secretKeyID
-      The secret key GPG will use for signing and passphrase testing. GPG
-      will choose the default key if unset. Default is null.
-
-    $comment
-      This option fills defines what comment is put into the comment field
-      of messages. Default is null; GPG determines.
-
-    $homedir
-      This option determines the argument to GPG's --homedir option. Default
-      is null; GPG determines.
-
-    $extraArgs
-      A reference to an array of any other possible arguments Please note
-      that if you wish to have multiple options, including ones that are
-      divided up among two arguments, such as --cipher-algo, which takes a
-      second argument, an integer, divide up the arguments into different
-      elements in the array reference. See the example in the synopsis for
-      an example.
+    The interface to cipher() and decipher() is modelled after IPC::Open3, a
+    base Perl module. In fact, most of the inter-process communication code
+    in this module is modelled after IPC::Open3.
 
 METHODS
     new()
-      Creates a new object. One can pass in data members with values using
-      an anonymous hash. See synopsis for an example.
+        Creates a new object. One can pass in data members with values using
+        an anonymous hash. See the synopsis for an example.
 
-    passphrase_prompt()
-      Prompts the user for a passphrase; uses Term::ReadKey for non-echoed
-      input. Sets *$passphrase* to any input by the user.
-
-    passphrase_test( [$passphrase] )
-      Tests if *$passphase* (already set or passed as an argument) is valid
-      for the secret key currently selected. Sets *$passphrase* to any
-      passed argument.
+    passphrase_test( [ $passphrase ] )
+        Tests if $passphase (already set or passed as an argument) is valid
+        for the secret key currently selected. Sets $passphrase to any
+        passed argument.
 
     cipher( $stdin, [ $stdout, [ $stderr, [ $status ] ] ] )
-      This is a committal method; that is, it looks at all the previously-
-      set data members, and calls gpg accordingly for encrypting or signing
-      streams. The interface for this method is similar to IPC::Open3's
-      interface; please read it for gritty details. Basically, filehandles
-      are passed in, and they are attached to the gpg process. This
-      interface is a lot more lenient, however. If $stdin, $stdout, or
-      $stderr is eliminated, or false, its respective 'natural' file handle
-      is used. That is, if $stderr is elminated, all of gpg's stderr is
-      piped out to your stderr; if $stdin is eliminated, gpg reads from your
-      stdin. $status reads from gpg's --status-fd option, and has no
-      'natural' backup; that is, if it is eliminated, the output is not
-      piped to any other filehandle. To detect success or failure, one can
-      either see if the output is eof (a hack), or, preferrably, read from
-      $status. This will give you the best, detailed output. *encrypt()* and
-      *sign()* are aliases for this subroutine, for ease of readibility.
+        This is a committal method; that is, it looks at all the previously-
+        set data members, and calls GnuPG accordingly for encrypting or
+        signing streams. The interface for this method is similar to
+        IPC::Open3's interface; please read it for gritty details.
+        Basically, handles are passed in, and they are attached to the GnuPG
+        process. This interface is a lot more lenient, however. For example,
+        $stdin, $stdout, or $stderr is eliminated, or false, its respective
+        'natural' file handle is used. That is, if $stderr is elminated, all
+        of GnuPG's stderr is piped out to your stderr; if $stdin is
+        eliminated, GnuPG reads from your stdin. $status reads from GnuPG's
+        --status-fd option, and has no 'natural' backup; that is, if it is
+        eliminated, the output is not piped to any other filehandle. To
+        detect success or failure, one can either see if the output handle
+        is eof, or, for more detail, read from $status, looking for error
+        statements.. encrypt() and sign() are aliases for this subroutine,
+        for ease of readibility.
 
     decipher( $stdin, [ $stdout, [ $stderr, [ $status ] ] ] )
-      This is just like *cipher()*, described above, except that it is used
-      for decrypting or verifying streams. *decrypt()* and *verify()* are
-      aliases for this subroutine, for ease of readibility.
+        This is just like cipher(), described above, except that it is used
+        for decrypting or verifying streams. decrypt() and verify() are
+        aliases for this subroutine, for ease of readibility.
+
+DATA MEMBERS
+    $encrypt
+        If true, the message will be encrypted. Default is false.
+
+    $sign
+        If true, the message will be signed. Default is false.
+
+    $recipients
+        A reference to an array of keyIDs GnuPG will encrypt to. Default is
+        null.
+
+    $passphrase
+        GnuPG will use $passphrase for signing and decrypting. This does not
+        have to be set if $interactive is set, or the operation, such as
+        signature verification, does not require it. Default is null.
+
+    $interactive
+        Setting this will allow the user to interact directly with GnuPG
+        such as to enter passphrases. This is desired for maximum security,
+        so that passphrases are not held in memory. Default is true.
+
+    $armor
+        If true, GnuPG will produce an armored output. Default is false.
+
+    $clearsign
+        If true, GnuPG will produce clear-signed messages. Default is false.
+
+    $symmetric
+        If true, GnuPG will only symmetrically (conventionally) encrypt.
+        This option is supposed to be used in addition to a true value for
+        $encrypt. If true, $recipients will be disregarded. Default is
+        false.
+
+    $secretKeyID
+        The secret key GnuPG will use for signing and passphrase testing.
+        GnuPG will choose the default key if unset. Default is null.
+
+    $comment
+        This option fills defines what comment is put into the comment field
+        of messages. Default is null; GnuPG determines.
+
+    $homedir
+        This option determines the argument to GnuPG's --homedir option.
+        Default is null; GnuPG determines.
+
+    $gpg_program
+        This is the path which is used to call GnuPG. Default is 'gpg',
+        which will find GnuPG if it is in your $PATH;
+
+    $extraArgs
+        A reference to an array of any other possible arguments Please note
+        that if you wish to have multiple options, including ones that are
+        divided up among two arguments, such as --cipher-algo, which takes a
+        second argument, an integer, divide up the arguments into different
+        elements in the array reference. See the synopsis for an example.
 
 NOTES
-    Unless *$interactive* is true, *$passphrase* must be set, either
-    directly, or through *passphase_prompt()*, or *passphrase_test()*.
+    Unless $interactive is true, $passphrase must be set, either directly,
+    or indirectly through passphrase_test().
 
-    Some settings have no effect in some situations. For instance,
-    *$encrypt* has no effect if *decipher()* is called.
+    Some settings have no effect in some situations. For instance, $encrypt
+    has no effect if decipher() is called.
 
-    This module does not override any options in what gpg considers to be
-    its option file, located in its homedir.
+    This module does not override any options in what GnuPG considers to be
+    its option file.
 
-  BACKWARDS COMPATIBILITY
-
+BACKWARDS COMPATIBILITY
     Older versions of this module used a sick array-ref method of passing
     data around. That interface has been dropped, in favor of the cleaner,
     more efficient, easier to use passed-filehandle method. However, for a
@@ -194,10 +195,10 @@ NOTES
 SECURITY NOTES
     Nothing fancy here for security such as memory-locking.
 
-    This module solely uses pipes to interact with gpg.
+    This module solely uses pipes to interact with GnuPG.
 
-    For maximum passphrase security, *$interactive* should be true, forcing
-    the user to input the passphrase directly to GPG.
+    For maximum passphrase security, $interactive should be true, forcing
+    the user to input the passphrase directly to GnuPG.
 
 PROBLEMS/BUGS
     Nothing fancy here for security such as memory-locking.
@@ -207,7 +208,8 @@ PROBLEMS/BUGS
 AUTHOR
     Frank J. Tobin <ftobin@uiuc.edu>
 
-    fingerprint: 4F86 3BBB A816 6F0A 340F 6003 56FF D10A 260C 4FA3
+    OpenPGP fingerprint:
+        fingerprint: 4F86 3BBB A816 6F0A 340F 6003 56FF D10A 260C 4FA3
 
 COPYRIGHT
     Copyright (C) 1999 Frank J. Tobin <ftobin@uiuc.edu>

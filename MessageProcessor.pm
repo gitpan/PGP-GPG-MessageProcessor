@@ -11,9 +11,8 @@
 #  GNU General Public License for more details.
 #
 #  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software
-#  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
-
+#  along with this program; if not, visit the following URL:
+#  http://www.gnu.org/copyleft/gpl.html
 
 package PGP::GPG::MessageProcessor;
 
@@ -22,16 +21,14 @@ use 5.005;
 use strict;
 no strict 'refs';
 use English;
-use FileHandle;
 use Carp;
-use Symbol;
 use Fcntl;
-use Term::ReadKey;
 use vars qw/ $VERSION /;
-use Fatal qw/ open close pipe gensym fcntl /;
+use Fatal qw/ open close pipe fcntl /;
+use IO::Handle;
 1;
 
-$VERSION = '0.4.2';
+$VERSION = '0.4.5';
 
 use constant DEBUG => 0;
 
@@ -41,15 +38,16 @@ sub new {
   my $proto  = shift;
   my $class = ref ( $proto ) || $proto;
   my $self = 
-    { encrypt       =>  0,  # do not encrypt
+    { gpg_program   => 'gpg',
+      encrypt       =>  0,  # do not encrypt
       sign          =>  0,  # do not sign.
       passphrase    => '',  # secret-key passphrase
-      interactive   =>  1,  # have user interact directly with GPG
+      interactive   =>  1,  # have user interact directly with GnuPG
       recipients    => [],  # encryption recipients.
       armor         =>  0,  # do not armor
       clearsign     =>  0,  # do not clearsign.
       symmetric     =>  0,  # do not only symmetrically encrypt
-      secretKeyID   => '',  # GPG decides.
+      secretKeyID   => '',  # GnuPG decides.
       extraArgs     => [],  # Any optional user-defined optional arguments.
       homedir       => '',  # gnupg's home directory
       comment       => '',
@@ -74,27 +72,6 @@ sub _init( $ ) {
 
 
 
-
-sub passphrase_prompt {
-  my $self = shift;
-  
-  print STDERR "begin passphrase_prompt()\n" if DEBUG;
-  
-  my $tty = new FileHandle "/dev/tty";
-  
-  # Clear old passphrase - not sure if this really overwrites it or not.
-  # so we'll just try anyways
-  $self->{passphrase} = '0' x 256;
-  
-  ReadMode 'noecho', $tty;
-  $self->{passphrase} = ReadLine 0;
-  chomp $self->{passphrase};
-  ReadMode 'restore', $tty;
-}
-
-
-
-
 sub passphrase_test {
   my $self = shift;
   
@@ -105,11 +82,11 @@ sub passphrase_test {
   croak 'No passphrase defined to test!'
     unless $self->{passphrase};
   
-  my $input      = gensym;
-  my $output     = gensym;
-  my $err        = gensym;
-  my $status     = gensym;
-  my $passphrase = gensym;
+  my $input      = new IO::Handle;
+  my $output     = new IO::Handle;
+  my $err        = new IO::Handle;
+  my $status     = new IO::Handle;
+  my $passphrase = new IO::Handle;
   
   # save this value; we most definitely want to be in non-interactive mode
   my $saved_interactive = $self->{interactive};
@@ -143,11 +120,11 @@ sub wrap_array_usage {
   
   my $gave_output = defined $output;
   
-  my $in_fh  = gensym;
-  my $out_fh = gensym;
-  my $err_fh = defined $err ? gensym : ">&STDERR";
+  my $in_fh  = new IO::Handle;
+  my $out_fh = new IO::Handle;
+  my $err_fh = defined $err ? new IO::Handle : ">&STDERR";
   
-  $self->$function( $in_fh, $out_fh, $err_fh );
+  my $pid = $self->$function( $in_fh, $out_fh, $err_fh );
   
   foreach ( @{ $input } ) {
     print $in_fh $_;
@@ -167,6 +144,8 @@ sub wrap_array_usage {
   if ( not $gave_output ) {
     @{ $input } = @{ $output };
   }
+  
+  waitpid( $pid, 0 );
   
   return scalar @{ $output };
 }
@@ -267,19 +246,19 @@ sub call_with_common_interface {
   
   print STDERR "begin call_with_common_interface()\n" if DEBUG;
   
-  unshift @{ $options }, 'gpg';
-  
-  push ( @{ $options }, '--default-key', $self->{secretKeyID} )
+  unshift ( @{ $options }, '--default-key', $self->{secretKeyID} )
     if $self->{secretKeyID};
   
-  push @{ $options }, '--batch', '--no-tty'
+  unshift @{ $options }, '--batch', '--no-tty'
     unless $self->{interactive};
   
-  push ( @{ $options }, '--homedir', $self->{homedir} )
+  unshift ( @{ $options }, '--homedir', $self->{homedir} )
     if $self->{homedir};
   
-  push ( @{ $options }, @{ $self->{extraArgs} } )
+  unshift ( @{ $options }, @{ $self->{extraArgs} } )
     if scalar @{ $self->{extraArgs} };
+  
+  unshift @{ $options }, $self->{gpg_program};
   
   $stdin  = "<&STDIN"  unless $stdin;
   $stdout = ">&STDOUT" unless $stdout;
@@ -289,9 +268,9 @@ sub call_with_common_interface {
   # if they didn't give us a status filehandle, we'll
   # just create a dummy one to use, and discard the contents
   my $gave_status_handle = $status;
-  $status = gensym  unless $gave_status_handle;
+  $status = new IO::Handle  unless $gave_status_handle;
   
-  my $passphrase_handle = gensym;
+  my $passphrase_handle = new IO::Handle;
   
   my $pid = $self->attach_pipes( $options, $stdin, $stdout, $stderr,
 				 $status, $passphrase_handle );
@@ -333,11 +312,11 @@ sub attach_pipes {
   my $dupped_parent_status     = ( $parent_status     =~ s/^[<>]&// );
   my $dupped_parent_passphrase = ( $parent_passphrase =~ s/^[<>]&// );
   
-  my $child_read       = gensym;
-  my $child_write      = gensym;
-  my $child_err        = gensym;
-  my $child_status     = gensym;
-  my $child_passphrase = gensym;
+  my $child_read       = new IO::Handle;
+  my $child_write      = new IO::Handle;
+  my $child_err        = new IO::Handle;
+  my $child_status     = new IO::Handle;
+  my $child_passphrase = new IO::Handle;
   
   pipe $child_read,       $parent_write      unless $dupped_parent_write;
   pipe $parent_read,      $child_write       unless $dupped_parent_read;
@@ -358,7 +337,7 @@ sub attach_pipes {
     if ( $parent_read ne $parent_err
 	 and $dupped_parent_err
 	 and fileno( $parent_err ) == fileno( STDOUT ) ) {
-      my $tmp = gensym;
+      my $tmp = new IO::Handle;
       open $tmp, ">&$parent_err";
       $parent_err = $tmp;
     }
@@ -443,11 +422,12 @@ sub attach_pipes {
 
 =head1 NAME
 
-PGP::GPG::MessageProcessor - supply object methods for interacting with GPG.
+PGP::GPG::MessageProcessor - supply object methods for interacting with GnuPG
+
 
 =head1 SYNOPSIS
 
-  use Symbol;                     # for gensym
+  use IO::Handle;
   use PGP::GPG::MessageProcessor;
 
   $mp = new PGP::GPG::MessageProcessor;
@@ -458,13 +438,12 @@ PGP::GPG::MessageProcessor - supply object methods for interacting with GPG.
   $mp->{recipients} = [ 'keyID', ... ];
 
   $mp->{passphrase} = $passphrase;
-  $passphrase       = $mp->passphrase_prompt();
   $success          = $mp->passphrase_test( $passphrase);
 
-  $input  = gensym;  # These could be a new IO::Handle or FileHandle
-  $output = gensym;  # instead; import theses modules if you want them.
-  $error  = '';      # Yes, youy can do this!  It becomes ">&STDERR".
-  $status = gensym;
+  $input  = new IO::Handle; # These could be be a Symbol::gensym
+  $output = new IO::Handle;
+  $error  = '';             # It becomes ">&STDERR".
+  $status = new IO::Handle;
 
   $pid = $mp->cipher( $input, $output, $error, $status );
   
@@ -475,8 +454,8 @@ PGP::GPG::MessageProcessor - supply object methods for interacting with GPG.
   @error      = <$error>;
   @status     = <$status>;
 
-  $input  = "<&STDIN";     # read from stdin; this could also just be ''
-  $output = '';            # write to stdout; this could also be ">&STDOUT"
+  $input  = "<&STDIN";     # read from stdin; could also just be ''
+  $output = '';            # write to stdout
 
   $pid = $mp->decipher( $input, $output, $error );
 
@@ -490,176 +469,182 @@ PGP::GPG::MessageProcessor - supply object methods for interacting with GPG.
   $mp->{homedir}     = $pathname; # without shell expansions like ~
   $mp->{extraArgs}   = [ '--cipher-algo', 2 ];
 
-  $mp = new PGP::GPG::MessageProcessor { encrypt => 1, symmetric => 1 }
+  $mp = new PGP::GPG::MessageProcessor { encrypt => 1,
+                                        symmetric => 1 }
+
 
 
 =head1 DESCRIPTION
 
-The purpose of I<PGP::GPG::MessageProcessor> is to provide a simple,
-object-oriented interface to GPG, the GNU Privacy Guard,
+The purpose of B<PGP::GPG::MessageProcessor> is to provide a simple,
+object-oriented interface to GnuPG, the GNU Privacy Guard,
 and any other implementation of PGP that uses
 the same syntax and piping mechanisms.
 
-Normal usage involves creating a new object via I<new()>, making some settings
-such as I<$passphase>, I<$armor>, or I<$recipients>, and then committing these
-with I<cipher()> or I<decipher()>.
+Normal usage involves creating a new object via B<new()>, making some settings
+such as B<$passphase>, B<$armor>, or B<$recipients>, and then committing these
+with B<cipher()> or B<decipher()>.
 
-The interface to I<cipher()> and I<decipher()> is modelled after
-IPC::Open3, a base Perl module.  In fact, most of the inter-process
-communication code in this module is modelled after IPC::Open3.
+The interface to B<cipher()> and B<decipher()> is modelled after
+B<IPC::Open3>, a base Perl module.  In fact, most of the inter-process
+communication code in this module is modelled after B<IPC::Open3>.
+
+
+=head1 METHODS
+
+=over 4
+
+=item new()
+
+Creates a new object.  One can pass in data members with
+values using an anonymous hash.  See the synopsis for an example.
+
+=item passphrase_test( [ $passphrase ] )
+
+Tests if B<$passphase> (already set
+or passed as an argument) is valid for the secret
+key currently selected.  Sets B<$passphrase> to any passed argument.
+
+=item cipher( $stdin, [ $stdout, [ $stderr, [ $status ] ] ] )
+
+This is a committal method; that is, it looks at all the previously-set
+data members, and calls GnuPG accordingly for encrypting or signing streams.
+The interface for this method is similar to B<IPC::Open3>'s interface;
+please read it for gritty details.
+Basically, handles are passed in, and they are attached to the GnuPG process.
+This interface is a lot more lenient, however.
+For example, B<$stdin>, B<$stdout>, or B<$stderr> is eliminated, or false,
+its respective 'natural' file handle is used.
+That is, if B<$stderr> is elminated, all of GnuPG's stderr is piped
+out to your stderr; if B<$stdin> is eliminated, GnuPG reads from your stdin.
+B<$status> reads from GnuPG's B<--status-fd> option,
+and has no 'natural' backup; that is, if it is eliminated,
+the output is not piped to any other filehandle.
+To detect success or failure, one can either see if the output handle is
+eof, or, for more detail, read from B<$status>, looking for error statements..
+B<encrypt()> and B<sign()> are aliases for this subroutine,
+for ease of readibility.
+
+=item decipher( $stdin, [ $stdout, [ $stderr, [ $status ] ] ] )
+
+This is just like B<cipher()>, described above, except that
+it is used for decrypting or verifying streams.
+B<decrypt()> and B<verify()> are aliases for this subroutine,
+for ease of readibility.
+
+=back
+
 
 =head1 DATA MEMBERS
 
-=over 2
+=over 4
 
-=item B<$encrypt>
+=item $encrypt
 
 If true, the message will be encrypted.
 Default is false.
 
-=item B<$sign>
+=item $sign
 
 If true, the message will be signed.
 Default is false.
 
-=item B<$recipients>
+=item $recipients
 
-A reference to an array of keyIDs GPG will encrypt to.
+A reference to an array of keyIDs GnuPG will encrypt to.
 Default is null.
 
-=item B<$passphrase>
+=item $passphrase
 
-GPG will use I<$passphrase> for signing and decrypting.
-This does not have to be set if I<$interactive> is set.
+GnuPG will use B<$passphrase> for signing and decrypting.
+This does not have to be set if B<$interactive> is set,
+or the operation, such as signature verification, does not require it.
 Default is null.
 
-=item B<$interactive>
+=item $interactive
 
-Setting this will allow the user to interact directly with
-GPG such as to enter passphrases.
-This is desired for maximum security, so that passphrases
-are not held in memory.
+Setting this will allow the user to interact
+directly with GnuPG such as to enter passphrases.
+This is desired for maximum security,
+so that passphrases are not held in memory.
 Default is true.
 
-=item B<$armor>
+=item $armor
 
-If true, GPG will produce an armored output.
+If true, GnuPG will produce an armored output.
 Default is false.
 
-=item B<$clearsign>
+=item $clearsign
 
-If true, GPG will produce clear-signed messages.
+If true, GnuPG will produce clear-signed messages.
 Default is false.
 
-=item B<$symmetric>
+=item $symmetric
 
-If true, GPG will only symmetrically (conventionally) encrypt.
-This option is supposed to be used in addition to a true value
-for I<$encrypt>.
-If true, I<$recipients> will be disregarded.
+If true, GnuPG will only symmetrically (conventionally) encrypt.
+This option is supposed to be used in addition to a true value for B<$encrypt>.
+If true, B<$recipients> will be disregarded.
 Default is false.
 
-=item B<$secretKeyID>
+=item $secretKeyID
 
-The secret key GPG will use for signing and passphrase testing.
-GPG will choose the default key if unset.
+The secret key GnuPG will use for signing and passphrase testing.
+GnuPG will choose the default key if unset.
 Default is null.
 
-=item B<$comment>
+=item $comment
 
 This option fills defines what comment is put into the comment
 field of messages.
-Default is null; GPG determines.
+Default is null; GnuPG determines.
 
-=item B<$homedir>
+=item $homedir
 
-This option determines the argument to GPG's --homedir option.
-Default is null; GPG determines.
+This option determines the argument to GnuPG's B<--homedir> option.
+Default is null; GnuPG determines.
 
-=item B<$extraArgs>
+=item $gpg_program
+
+This is the path which is used to call GnuPG.
+Default is 'gpg', which will find GnuPG if it is in your B<$PATH>;
+
+=item $extraArgs
 
 A reference to an array of any other possible arguments
 Please note that if you wish to have multiple options,
 including ones that are divided up among two arguments,
-such as --cipher-algo, which takes a second argument, an integer,
-divide up the arguments into different elements in the
-array reference.  See the example in the synopsis for an example.
-
-
-=back
-
-=head1 METHODS
-
-=over 2
-
-=item B<new()>
-
-Creates a new object.  One can pass in data members with
-values using an anonymous hash.  See synopsis for an example.
-
-=item B<passphrase_prompt()>
-
-Prompts the user for a passphrase; uses Term::ReadKey
-for non-echoed input.  Sets I<$passphrase> to any input by the user.
-
-=item B<passphrase_test( [$passphrase] )>
-
-Tests if I<$passphase> (already set
-or passed as an argument) is valid for the secret
-key currently selected.  Sets I<$passphrase> to any passed argument.
-
-=item B<cipher( $stdin, [ $stdout, [ $stderr, [ $status ] ] ] )>
-
-This is a committal method; that is, it looks at all the previously-set
-data members, and calls gpg accordingly for encrypting or signing
-streams.
-The interface for this method is similar to IPC::Open3's interface;
-please read it for gritty details.  Basically, filehandles are passed
-in, and they are attached to the gpg process.
-This interface is a lot more lenient, however.
-If $stdin, $stdout, or $stderr is eliminated, or false,
-its respective 'natural' file handle is used.  That is, if $stderr
-is elminated, all of gpg's stderr is piped out to your stderr; if
-$stdin is eliminated, gpg reads from your stdin.  $status
-reads from gpg's --status-fd option, and has no 'natural' backup;
-that is, if it is eliminated, the output is not piped to
-any other filehandle.
-To detect success or failure, one can either see if the output is
-eof (a hack), or, preferrably, read from $status.  This will
-give you the best, detailed output.
-I<encrypt()> and I<sign()> are aliases for this subroutine,
-for ease of readibility.
-
-=item B<decipher( $stdin, [ $stdout, [ $stderr, [ $status ] ] ] )>
-
-This is just like I<cipher()>, described above, except that
-it is used for decrypting or verifying streams.
-I<decrypt()> and I<verify()> are aliases for this subroutine,
-for ease of readibility.
+such as B<--cipher-algo>, which takes a second argument, an integer,
+divide up the arguments into different elements in the array reference.
+See the synopsis for an example.
 
 =back
+
 
 =head1 NOTES
 
-Unless I<$interactive> is true, I<$passphrase> must be set, either
-directly, or through
-I<passphase_prompt()>, or I<passphrase_test()>.
+Unless B<$interactive> is true, B<$passphrase> must be set, either
+directly, or indirectly through B<passphrase_test()>.
 
 Some settings have no effect in some situations.  For instance,
-I<$encrypt> has no effect if I<decipher()> is called.
+B<$encrypt> has no effect if B<decipher()> is called.
 
-This module does not override any options in what gpg considers
-to be its option file, located in its homedir.
+This module does not override any options in what GnuPG considers
+to be its option file.
 
-=head2 BACKWARDS COMPATIBILITY
+You should wait for the $pid returned by B<cipher()> or B<decipher()>,
+using the B<wait()> or B<waitpid()> calls, or else you may end
+up accumulating zombies.
+
+=head1 BACKWARDS COMPATIBILITY
 
 Older versions of this module used a sick array-ref method of
 passing data around.  That interface has been dropped, in
 favor of the cleaner, more efficient, easier to use
-passed-filehandle method.  However,
-for a couple of revisions, the array-ref interface will
-still be allowed, but heavily discouraged.  Expect
-this compatibility to be dropped, and change your code
+passed-filehandle method.
+However, for a couple of revisions,
+the array-ref interface will still be allowed,
+but heavily discouraged.
+Expect this compatibility to be dropped, and change your code
 to use the new interface described in this manpage.
 
 
@@ -667,10 +652,11 @@ to use the new interface described in this manpage.
 
 Nothing fancy here for security such as memory-locking.
 
-This module solely uses pipes to interact with gpg.
+This module solely uses pipes to interact with GnuPG.
 
-For maximum passphrase security, I<$interactive> should be true, forcing
-the user to input the passphrase directly to GPG.
+For maximum passphrase security, B<$interactive> should be true, forcing
+the user to input the passphrase directly to GnuPG.
+
 
 =head1 PROBLEMS/BUGS
 
@@ -679,11 +665,19 @@ Nothing fancy here for security such as memory-locking.
 This documentation is probably pretty bad.  Please let me know
 of errors.
 
+
 =head1 AUTHOR
 
 Frank J. Tobin <ftobin@uiuc.edu>
 
+=over 4
+
+=item OpenPGP fingerprint:
+
 fingerprint: 4F86 3BBB A816 6F0A 340F  6003 56FF D10A 260C 4FA3
+
+=back
+
 
 =head1 COPYRIGHT
 
@@ -700,7 +694,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+along with this program; if not, visit the following URL:
+http://www.gnu.org/copyleft/gpl.html
 
 =cut
